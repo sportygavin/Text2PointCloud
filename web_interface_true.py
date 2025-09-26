@@ -1,4 +1,224 @@
+"""
+Text2PointCloud - Updated Web Interface with True Point Cloud Generation
 
+A Flask web application for text-to-point-cloud generation with actual 3D object outlines.
+"""
+
+from flask import Flask, render_template, request, jsonify
+import json
+import numpy as np
+import plotly.graph_objects as go
+import plotly.utils
+import sys
+import os
+from pathlib import Path
+
+# Add src directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+
+from text_processing.improved_encoder import ImprovedTextEncoder
+from validation.validator import PointCloudValidator
+from true_point_cloud_model import TruePointCloudModel
+import torch
+
+app = Flask(__name__)
+
+class Text2PointCloudWebApp:
+    """
+    Web application for text-to-point-cloud generation with true point cloud outlines.
+    """
+    
+    def __init__(self):
+        """Initialize the web app."""
+        self.text_encoder = ImprovedTextEncoder()
+        self.validator = PointCloudValidator()
+        self.model = None
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
+        # Load the true point cloud model
+        self.load_model()
+    
+    def load_model(self):
+        """Load the true point cloud model."""
+        try:
+            # Create true point cloud model
+            self.model = TruePointCloudModel(self.text_encoder)
+            self.model.to(self.device)
+            self.model.eval()
+            print("✓ True point cloud model loaded successfully")
+                
+        except Exception as e:
+            print(f"✗ Error loading model: {e}")
+            self.model = None
+    
+    def generate_point_cloud(self, text: str, num_points: int = 1024):
+        """
+        Generate point cloud from text.
+        
+        Args:
+            text: Input text description
+            num_points: Number of points in generated cloud
+            
+        Returns:
+            Dictionary with point cloud data and validation results
+        """
+        if self.model is None:
+            return {
+                'error': 'Model not loaded',
+                'points': [],
+                'validation': {}
+            }
+        
+        try:
+            # Generate point cloud using true point cloud model
+            points = self.model.generate_point_cloud(text)
+            
+            # Limit to requested number of points
+            if len(points) > num_points:
+                points = points[:num_points]
+            
+            # Validate
+            validation_results = self.validator.validate_generation(
+                np.array(points), text
+            )
+            
+            return {
+                'points': points,
+                'validation': validation_results,
+                'text': text,
+                'num_points': len(points)
+            }
+            
+        except Exception as e:
+            return {
+                'error': str(e),
+                'points': [],
+                'validation': {}
+            }
+    
+    def create_plotly_figure(self, points, text, validation_results):
+        """
+        Create Plotly figure for 3D visualization.
+        
+        Args:
+            points: List of (x, y, z) coordinate tuples
+            text: Input text description
+            validation_results: Validation results dictionary
+            
+        Returns:
+            Plotly figure object
+        """
+        if not points:
+            return go.Figure()
+        
+        # Extract coordinates
+        x_coords = [p[0] for p in points]
+        y_coords = [p[1] for p in points]
+        z_coords = [p[2] for p in points]
+        
+        # Create 3D scatter plot with individual dots
+        fig = go.Figure(data=[go.Scatter3d(
+            x=x_coords,
+            y=y_coords,
+            z=z_coords,
+            mode='markers',
+            marker=dict(
+                size=3,
+                color=z_coords,  # Color by z-coordinate
+                colorscale='Viridis',
+                opacity=0.8,
+                colorbar=dict(title="Z Coordinate"),
+                line=dict(width=0.5, color='rgba(0,0,0,0.3)')
+            ),
+            text=[f"Point {i}" for i in range(len(points))],
+            hovertemplate='<b>%{text}</b><br>' +
+                         'X: %{x:.3f}<br>' +
+                         'Y: %{y:.3f}<br>' +
+                         'Z: %{z:.3f}<extra></extra>'
+        )])
+        
+        # Update layout
+        fig.update_layout(
+            title=f"3D Object Outline: '{text}'",
+            scene=dict(
+                xaxis_title='X',
+                yaxis_title='Y',
+                zaxis_title='Z',
+                aspectmode='cube',
+                camera=dict(
+                    eye=dict(x=1.5, y=1.5, z=1.5)
+                )
+            ),
+            width=800,
+            height=600,
+            margin=dict(l=0, r=0, b=0, t=50)
+        )
+        
+        return fig
+
+# Create app instance
+web_app = Text2PointCloudWebApp()
+
+@app.route('/')
+def index():
+    """Main page."""
+    return render_template('index.html')
+
+@app.route('/generate', methods=['POST'])
+def generate():
+    """Generate point cloud from text input."""
+    try:
+        data = request.get_json()
+        text = data.get('text', '').strip()
+        num_points = int(data.get('num_points', 1024))
+        
+        if not text:
+            return jsonify({'error': 'Please enter some text'})
+        
+        # Generate point cloud
+        result = web_app.generate_point_cloud(text, num_points)
+        
+        if 'error' in result:
+            return jsonify(result)
+        
+        # Create Plotly figure
+        fig = web_app.create_plotly_figure(
+            result['points'], 
+            result['text'], 
+            result['validation']
+        )
+        
+        # Convert to JSON
+        graphJSON = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+        
+        # Prepare response
+        response = {
+            'graphJSON': graphJSON,
+            'validation': result['validation'],
+            'text': result['text'],
+            'num_points': result['num_points']
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+@app.route('/health')
+def health():
+    """Health check endpoint."""
+    return jsonify({
+        'status': 'healthy',
+        'model_loaded': web_app.model is not None,
+        'device': web_app.device
+    })
+
+if __name__ == '__main__':
+    # Create templates directory
+    os.makedirs('templates', exist_ok=True)
+    
+    # Create the HTML template
+    html_template = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -361,4 +581,14 @@
     </script>
 </body>
 </html>
+    '''
     
+    # Write template file
+    with open('templates/index.html', 'w') as f:
+        f.write(html_template)
+    
+    print("🚀 Starting Text2PointCloud Web Interface...")
+    print("📱 Open your browser and go to: http://localhost:5001")
+    print("🛑 Press Ctrl+C to stop the server")
+    
+    app.run(debug=True, host='0.0.0.0', port=5001)
