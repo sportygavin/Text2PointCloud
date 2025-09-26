@@ -8,6 +8,14 @@ scipy>=1.7.0
 matplotlib>=3.5.0
 plotly>=5.0.0
 
+# Machine Learning
+torch>=1.12.0
+torchvision>=0.13.0
+clip-by-openai>=1.0
+
+# Additional ML dependencies
+scikit-learn>=1.0.0
+
 # Text processing (for future NLP features)
 nltk>=3.7
 
