@@ -26,3 +26,9 @@ pytest-cov>=3.0.0
 # Code formatting and linting
 black>=22.0.0
 flake8>=4.0.0
+
+# Web interface
+flask>=2.0.0
+
+# Desktop interface
+tkinter  # Usually comes with Python

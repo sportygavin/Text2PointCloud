@@ -1,4 +1,4 @@
-"""
+y """
 Text2PointCloud - ShapeNet Data Integration
 
 This module handles downloading and processing real ShapeNet data for training.
@@ -14,7 +14,6 @@ import requests
 import zipfile
 from pathlib import Path
 import h5py
-import trimesh
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -474,7 +473,7 @@ class ShapeNetDataset(Dataset):
     
     def _load_data(self) -> List[Dict]:
         """Load the dataset from files."""
-        data_file = self.data_dir / f"{split}.json"
+        data_file = self.data_dir / f"{self.split}.json"
         if data_file.exists():
             with open(data_file, 'r') as f:
                 return json.load(f)
